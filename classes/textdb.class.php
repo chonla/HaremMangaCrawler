@@ -33,6 +33,12 @@
  *
  *   // Dump content as XML string
  *   $xml = $txtdb->to_string();
+ *
+ *   // Check if selector return something
+ *   $exists = $txtdb->exists('manga', '[title="test"]');
+ *
+ *   // Switch to other db
+ *   $txtdb->select_db('manga2');
  */
 class TextDB {
 	private $file;
@@ -40,9 +46,29 @@ class TextDB {
 	private $ext = '.textdb';
 	private $dom;
 	private $ai_field = '@id';
+	private $changed = false;
+	private $nodb = true;
 
-	function __construct($name) {
+	function __construct($name = '') {
 		$this->dir = dirname(dirname(__FILE__)).'/'.$this->dir.'/';
+		if ($name != '') {
+			$this->select_db($name);
+		}
+	}
+
+	function __destruct() {
+		if ($this->changed) {
+			$this->flush();
+		}
+	}
+
+	function select_db($name) {
+		$this->nodb = false;
+
+		if ($this->changed) {
+			$this->flush();
+		}
+
 		$this->file = $this->dir . $name . $this->ext;
 		if (!file_exists($this->file)) {
 			$content = '<?xml version="1.0" encoding="utf-8"?><root/>';
@@ -52,11 +78,11 @@ class TextDB {
 		}
 	}
 
-	function __destruct() {
-		$this->flush();
-	}
-
 	function create($table, $data) {
+		if ($this->nodb) {
+			die('Database has not been selected.');
+		}
+
 		$path = '/root/'.$table;
 		$nodes = $this->dom->xpath($path);
 		if (count($nodes) == 0) {
@@ -77,12 +103,20 @@ class TextDB {
 			if (substr($key, 0, 1) == '@') {
 				$row->addAttribute(substr($key, 1), $value);
 			} else {
-				$row->addChild($key, $value);
+				$newnode = $row->addChild($key);
+				$node= dom_import_simplexml($newnode);
+				$no = $node->ownerDocument; 
+				$node->appendChild($no->createCDATASection($value));
 			}
 		}
+		$this->changed = true;
 	}
 
 	function retrieve($table, $where = '', $limit = 0) {
+		if ($this->nodb) {
+			die('Database has not been selected.');
+		}
+
 		$path = '/root/'.$table.'/row'.$where;
 		$nodes = $this->dom->xpath($path);
 		if (count($nodes) == 0) {
@@ -93,12 +127,23 @@ class TextDB {
 		}
 		$rows = array();
 		foreach($nodes as $node) {
-			$rows[] = $node;
+			$row = array();
+			foreach($node->attributes() as $attr => $attr_val) {
+				$row['@'.$attr] = $attr_val;
+			}
+			foreach($node->children() as $child) {
+				$row[$child->getName()] = $child[0];
+			}
+			$rows[] = $row;
 		}
 		return $rows;
 	}
 
 	function update($table, $data, $where = '') {
+		if ($this->nodb) {
+			die('Database has not been selected.');
+		}
+
 		$path = '/root/'.$table.'/row'.$where;
 		$nodes = $this->dom->xpath($path);
 		foreach($nodes as $node) {
@@ -107,29 +152,44 @@ class TextDB {
 				if (array_key_exists($cname, $data)) {
 					$child[0] = $data[$cname];
 				}
+				$this->changed = true;
 			}
 		}
 	}
 
 	function delete($table, $where = '') {
+		if ($this->nodb) {
+			die('Database has not been selected.');
+		}
+
 		$path = '/root/'.$table.'/row'.$where;
 		$nodes = $this->dom->xpath($path);
 		foreach($nodes as $node) {
 			$domnode = dom_import_simplexml($node);
 			$domnode->parentNode->removeChild($domnode);
+			$this->changed = true;
 		}
 	}
 
 	function drop($table) {
+		if ($this->nodb) {
+			die('Database has not been selected.');
+		}
+
 		$path = '/root/'.$table;
 		$nodes = $this->dom->xpath($path);
 		foreach($nodes as $node) {
 			$domnode = dom_import_simplexml($node);
 			$domnode->parentNode->removeChild($domnode);
+			$this->changed = true;
 		}
 	}
 
 	function truncate($table) {
+		if ($this->nodb) {
+			die('Database has not been selected.');
+		}
+
 		$path = '/root/'.$table;
 		$nodes = $this->dom->xpath($path);
 		foreach($nodes as $node) {
@@ -138,19 +198,43 @@ class TextDB {
 		}
 		$tab = $this->dom->addChild($table);
 		$tab->addAttribute('next_ai', 1);
+		$this->changed = true;
 	}
 
 	function count($table, $where = '') {
+		if ($this->nodb) {
+			die('Database has not been selected.');
+		}
+
 		$path = '/root/'.$table.'/row'.$where;
 		$nodes = $this->dom->xpath($path);
 		return count($nodes);
 	}
 
+	function exists($table, $where = '') {
+		if ($this->nodb) {
+			die('Database has not been selected.');
+		}
+
+		$path = '/root/'.$table.'/row'.$where;
+		$nodes = $this->dom->xpath($path);
+		return !empty($nodes);
+	}
+
 	function flush() {
+		if ($this->nodb) {
+			die('Database has not been selected.');
+		}
+
 		$this->dom->asXML($this->file);
+		$this->changed = false;
 	}
 
 	function to_string() {
+		if ($this->nodb) {
+			die('Database has not been selected.');
+		}
+
 		return $this->dom->asXML();
 	}
 }
